@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#b45309">
+<title>chatbrief</title>
+<style>
+  :root { color-scheme: light dark; --bg:#fff; --fg:#1b1f24; --mut:#667085; --line:#d8dee4; --card:#f6f8fa; --acc:#b45309; --warn:#b45309; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0d1117; --fg:#e6edf3; --mut:#8b949e; --line:#30363d; --card:#161b22; --acc:#f59e0b; --warn:#fbbf24; } }
+  * { box-sizing: border-box; }
+  body { margin:0 auto; max-width:760px; padding:16px; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, sans-serif; }
+  h1 { font-size:1.4rem; margin:0; }
+  h2 { font-size:1.05rem; margin:22px 0 6px; }
+  .mut { color:var(--mut); font-size:.875rem; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:12px 0; }
+  button, .btn, select, input, textarea { font:inherit; color:var(--fg); background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px 12px; min-height:42px; }
+  button, .btn { background:var(--card); cursor:pointer; display:inline-flex; align-items:center; }
+  button.main, .btn.main { background:var(--acc); border-color:var(--acc); color:#fff; }
+  button.small { min-height:32px; padding:2px 10px; font-size:.85rem; }
+  button:disabled { opacity:.45; cursor:default; }
+  input[type=checkbox] { min-height:0; width:18px; height:18px; padding:0; }
+  textarea { width:100%; resize:vertical; }
+  label.opt { display:flex; gap:8px; align-items:center; min-height:36px; }
+  table { width:100%; border-collapse:collapse; margin:8px 0; }
+  td, th { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); }
+  td.n, th.n { text-align:right; font-variant-numeric:tabular-nums; }
+  .card { border:1px solid var(--line); border-radius:10px; padding:10px 12px; margin:8px 0; overflow-wrap:anywhere; }
+  .pre { white-space:pre-wrap; }
+  details { border:1px solid var(--line); border-radius:8px; padding:8px 12px; margin:8px 0; }
+  summary { cursor:pointer; }
+  li { margin:4px 0; }
+  a { color:var(--acc); }
+  #list { max-height:320px; overflow:auto; border:1px solid var(--line); border-radius:8px; padding:4px 10px; }
+  #list label { display:flex; gap:8px; align-items:flex-start; padding:5px 0; border-bottom:1px solid var(--line); }
+  #list label:last-child { border-bottom:0; }
+  #out { min-height:300px; font:.85rem/1.45 ui-monospace, monospace; }
+</style>
+</head>
+<body>
+<h1>chatbrief</h1>
+<p>Turn old AI chats into a short context pack you can paste into any AI to carry on where you left off.
+<span class="mut">Everything happens in this browser. Nothing is uploaded.</span></p>
+
+<div class="row">
+  <label class="btn main">1. Pick your export files
+    <input id="file" type="file" accept=".zip,.json,application/zip,application/json" multiple hidden>
+  </label>
+</div>
+<p class="mut" id="status" role="status">Pick the export files you downloaded from Claude, ChatGPT, Gemini, Grok or DeepSeek (.zip or .json).</p>
+
+<div id="work" hidden>
+  <h2>2. Tick the chats that belong to the project</h2>
+  <div class="row">
+    <input id="q" type="search" placeholder="Search titles and messages…" aria-label="Search chats" style="flex:1">
+    <button id="all" class="small">Tick shown</button>
+    <button id="none" class="small">Untick all</button>
+  </div>
+  <div id="list"></div>
+  <p class="mut" id="count"></p>
+
+  <h2>3. Your context pack</h2>
+  <div class="row">
+    <label class="mut">Size
+      <select id="size">
+        <option value="2000">Short (about 500 tokens)</option>
+        <option value="4000" selected>Medium (about 1,000 tokens)</option>
+        <option value="8000">Long (about 2,000 tokens)</option>
+        <option value="16000">Very long (about 4,000 tokens)</option>
+      </select>
+    </label>
+    <button id="copy" class="main">Copy</button>
+    <button id="save">Download .md</button>
+  </div>
+  <textarea id="out" aria-label="Context pack" spellcheck="false"></textarea>
+  <p class="mut">You can edit the pack before copying it. Paste it as the first message of a new chat.</p>
+</div>
+
+<h2>How it picks what goes in</h2>
+<ul class="mut">
+  <li>It does not use an AI. It reads <b>your own messages</b> and keeps sentences that look like preferences ("I want", "always", "don't"), decisions ("let's go with", "I chose") and things still to do, plus how each chat started and where it left off.</li>
+  <li>That makes it private and free, but it works by spotting phrases, so it can miss things or keep the wrong sentence. Read the pack once before you rely on it.</li>
+  <li>The phrase rules are English. Chats in other languages still get the start and the "left off" parts.</li>
+</ul>
+<p class="mut">Part of the same family as <a href="https://github.com/spencerrios64/chatvault">chatvault</a>, <a href="https://spencerrios64.github.io/chatzip/">chatzip</a> and <a href="https://spencerrios64.github.io/chatrelay/">chatrelay</a>.</p>
+<script>
+// ---------------------------------------------------------------- core (no DOM)
+const iso = v => {
+  if (v == null || v === '') return null;
+  if (typeof v === 'number') return new Date(v > 1e11 ? v : v * 1000).toISOString();
+  if (typeof v === 'object') {
+    const d = v.$date, n = d && typeof d === 'object' ? d.$numberLong : d;
+    return n == null ? null : iso(isNaN(+n) ? String(n) : +n);
+  }
+  return String(v);
+};
+
+function stripHtml(html) {
+  const ent = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ' };
+  return html.replace(/<br\s*\/?>|<\/(p|li|h\d|div|tr|pre)>/gi, '\n').replace(/<[^>]*>/g, '')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(+n)).replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
+    .replace(/&(\w+);/g, (m, n) => ent[n] || m).replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// ChatGPT and DeepSeek both export a "mapping" tree of messages.
+function parseMapping(data) {
+  let deepseek = false;
+  const convs = data.map(c => {
+    const map = c.mapping || {};
+    let chain = [], node = c.current_node;
+    if (node) {
+      while (node && map[node]) { chain.push(map[node]); node = map[node].parent; }
+      chain.reverse();
+    } else {
+      node = map.root ? 'root' : Object.keys(map).find(k => !map[k].parent);
+      const seen = new Set();
+      while (node && map[node] && !seen.has(node)) {
+        seen.add(node); chain.push(map[node]);
+        const kids = map[node].children || [];
+        node = kids[kids.length - 1];
+      }
+    }
+    const messages = [];
+    for (const e of chain) {
+      const m = e.message;
+      if (!m) continue;
+      if (Array.isArray(m.fragments)) {
+        deepseek = true;
+        for (const f of m.fragments) {
+          const role = f.type === 'REQUEST' ? 'user' : f.type === 'RESPONSE' ? 'assistant' : null;
+          const text = String(f.content || '').trim();
+          if (role && text) messages.push({ role, text });
+        }
+        continue;
+      }
+      const role = (m.author || {}).role;
+      if (role !== 'user' && role !== 'assistant') continue;
+      const text = ((m.content || {}).parts || []).filter(p => typeof p === 'string').join('\n').trim();
+      if (text) messages.push({ role, text });
+    }
+    return { title: c.title, date: iso(c.create_time || c.inserted_at || c.update_time || c.updated_at), messages };
+  });
+  return { ai: deepseek ? 'DeepSeek' : 'ChatGPT', convs };
+}
+
+function parseClaude(data) {
+  return { ai: 'Claude', convs: data.map(c => {
+    const messages = [];
+    for (const m of c.chat_messages || []) {
+      let text = (m.text || '').trim();
+      if (!text) text = (m.content || []).filter(b => b.type === 'text').map(b => b.text || '').join('\n').trim();
+      if (text) messages.push({ role: m.sender === 'human' ? 'user' : 'assistant', text });
+    }
+    return { title: c.name, date: iso(c.created_at), messages };
+  }) };
+}
+
+function parseGrok(data) {
+  return { ai: 'Grok', convs: data.conversations.map(c => {
+    const info = c.conversation || {}, messages = [];
+    for (const r of c.responses || []) {
+      const m = r.response || r, text = String(m.message || '').trim();
+      if (!text) continue;
+      const who = String(m.sender || '').toLowerCase();
+      messages.push({ role: who === 'human' || who === 'user' ? 'user' : 'assistant', text });
+    }
+    return { title: info.title, date: iso(info.create_time || info.created_at), messages };
+  }) };
+}
+
+// Google Takeout "My Activity" has one entry per prompt and no chat ids: group by day.
+function parseGemini(data) {
+  const days = new Map();
+  for (const it of data) {
+    if (!/gemini/i.test(it.header || '') || !it.title) continue;
+    const day = String(it.time || '').slice(0, 10) || 'undated';
+    const turn = [{ role: 'user', text: String(it.title).replace(/^Prompted\s+/, '').trim() }];
+    const reply = (it.safeHtmlItem || []).map(h => stripHtml(h.html || '')).join('\n').trim();
+    if (reply) turn.push({ role: 'assistant', text: reply });
+    if (!days.has(day)) days.set(day, []);
+    days.get(day).push({ time: String(it.time || ''), turn });
+  }
+  return { ai: 'Gemini', convs: [...days].map(([day, turns]) => ({
+    title: 'Gemini prompts', date: day === 'undated' ? null : day,
+    messages: turns.sort((a, b) => a.time.localeCompare(b.time)).flatMap(t => t.turn) })) };
+}
+
+// A chatvault archive: [{source, title, messages:[{role, text}]}]
+function parseArchive(data) {
+  const names = { claude: 'Claude', chatgpt: 'ChatGPT' }, by = new Map();
+  for (const c of data) {
+    const src = String(c.source || 'other'), ai = names[src] || src[0].toUpperCase() + src.slice(1);
+    if (!by.has(ai)) by.set(ai, []);
+    by.get(ai).push({ title: c.title, date: iso(c.created_at || c.updated_at),
+      messages: (c.messages || []).filter(m => (m.text || '').trim()).map(m => ({ role: m.role, text: m.text })) });
+  }
+  return [...by].map(([ai, convs]) => ({ ai, convs }));
+}
+
+// Returns [{ai, convs}] for one parsed JSON document, or [] when it isn't a chat export.
+function detect(doc) {
+  if (Array.isArray(doc) && doc.length && doc[0] && typeof doc[0] === 'object') {
+    const f = doc[0];
+    if ('mapping' in f) return [parseMapping(doc)];
+    if ('chat_messages' in f) return [parseClaude(doc)];
+    if ('header' in f && 'title' in f && 'time' in f) return [parseGemini(doc)].filter(g => g.convs.length);
+    if ('messages' in f && 'source' in f) return parseArchive(doc);
+  }
+  if (doc && Array.isArray(doc.conversations) && doc.conversations.some(c => c && c.responses)) return [parseGrok(doc)];
+  return [];
+}
+
+// Reads the chat files out of an export .zip (or a bare .json) without loading the whole zip.
+async function readExport(file) {
+  const head = new Uint8Array(await file.slice(0, 2).arrayBuffer());
+  if (!(head[0] === 0x50 && head[1] === 0x4b)) return [{ name: file.name, doc: JSON.parse(await file.text()) }];
+  const tail = new DataView(await file.slice(Math.max(0, file.size - 65558)).arrayBuffer());
+  let e = -1;
+  for (let i = tail.byteLength - 22; i >= 0; i--) if (tail.getUint32(i, true) === 0x06054b50) { e = i; break; }
+  if (e < 0) throw new Error('not a valid zip file');
+  const count = tail.getUint16(e + 10, true), cdSize = tail.getUint32(e + 12, true), cdOff = tail.getUint32(e + 16, true);
+  if (cdOff === 0xffffffff || count === 0xffff) throw new Error('zip is too large (zip64); unzip it and pick the .json files inside');
+  const cdBuf = await file.slice(cdOff, cdOff + cdSize).arrayBuffer();
+  const cd = new DataView(cdBuf), dec = new TextDecoder(), out = [];
+  for (let n = 0, p = 0; n < count && cd.getUint32(p, true) === 0x02014b50; n++) {
+    const method = cd.getUint16(p + 10, true), csize = cd.getUint32(p + 20, true);
+    const nlen = cd.getUint16(p + 28, true), xlen = cd.getUint16(p + 30, true), clen = cd.getUint16(p + 32, true);
+    const off = cd.getUint32(p + 42, true);
+    const name = dec.decode(new Uint8Array(cdBuf, p + 46, nlen));
+    p += 46 + nlen + xlen + clen;
+    const m = /(^|\/)(conversations[^\/]*|prod-grok-backend|MyActivity)\.json$/i.exec(name);
+    if (!m || (/^MyActivity$/i.test(m[2]) && !/gemini/i.test(name))) continue;
+    const lh = new DataView(await file.slice(off, off + 30).arrayBuffer());
+    const start = off + 30 + lh.getUint16(26, true) + lh.getUint16(28, true);
+    let stream = file.slice(start, start + csize).stream();
+    if (method === 8) stream = stream.pipeThrough(new DecompressionStream('deflate-raw'));
+    else if (method !== 0) throw new Error('unsupported zip compression');
+    out.push({ name, doc: JSON.parse(await new Response(stream).text()) });
+  }
+  return out;
+}
+
+
+// Reads every picked file and returns a flat list of chats.
+async function loadFiles(files, say) {
+  const chats = [], problems = [];
+  for (const file of files) {
+    say(`Reading ${file.name}…`);
+    try {
+      const found = (await readExport(file)).flatMap(d => detect(d.doc));
+      if (!found.length) problems.push(`${file.name}: no chats recognised`);
+      for (const g of found) for (const c of g.convs) if (c.messages.length)
+        chats.push({ ai: g.ai, title: String(c.title || 'Untitled'), date: (c.date || '').slice(0, 10), messages: c.messages });
+    } catch (err) { problems.push(`${file.name}: ${err.message}`); }
+  }
+  return { chats, problems };
+}
+
+const clip = (s, n) => { s = String(s).replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s; };
+
+// Plain sentences only: skips code, very short fragments and walls of text.
+const sentences = t => String(t).split(/(?<=[.!?])\s+|\n+/).map(s => s.replace(/^[\s>*#-]+/, '').trim())
+  .filter(s => s.length >= 12 && s.length <= 300 && !/[{};=<>]{2,}|```|\bfunction\b|=>/.test(s));
+
+const RULES = {
+  prefs: /\b(i (?:want|prefer|like|need|hate|don'?t (?:want|like))|i'?d (?:like|prefer|rather)|always|never|make sure|please (?:don'?t|do not|use|keep|avoid)|should(?:n'?t| not)? (?:be|use|have|look)|must(?:n'?t| not)?|instead of|from now on|no more|keep it)\b/i,
+  decisions: /\b(let'?s (?:go with|use|do|keep|stick)|i(?:'ll| will) (?:go with|use|take|keep)|i(?:'ve| have)? ?(?:chose|chosen|choose|picked|decided)|we(?:'ll| will) (?:use|go with)|go(?:ing)? with|stick with|the name (?:is|will be)|call it)\b/i,
+  todos: /\b(todo|to-do|later|next (?:step|time|up)|still (?:need|have to|missing)|need(?:s)? to|have to|haven'?t|not yet|doesn'?t work|not working|broken|remind me|after that|then (?:we|i|you)|can you (?:also|now)|also (?:add|make|fix))\b/i,
+};
+
+function pick(messages, re, max) {
+  const out = [], seen = new Set();
+  for (const m of messages) for (const s of sentences(m.text)) {
+    const k = s.toLowerCase();
+    if (re.test(s) && !seen.has(k)) { seen.add(k); out.push(clip(s, 200)); }
+  }
+  return out.slice(-max);  // the most recent ones win
+}
+
+function briefOne(chat, max) {
+  const mine = chat.messages.filter(m => m.role === 'user');
+  if (!mine.length) return null;
+  const lastAi = [...chat.messages].reverse().find(m => m.role === 'assistant');
+  const tail = mine.slice(-Math.max(2, Math.ceil(mine.length / 3)));
+  const decisions = pick(mine, RULES.decisions, max);
+  const taken = new Set(decisions);
+  return {
+    head: `${chat.title} (${chat.ai}${chat.date ? ', ' + chat.date : ''}, ${chat.messages.length} messages)`,
+    about: clip(mine[0].text, max > 2 ? 400 : 200),
+    prefs: pick(mine, RULES.prefs, max).filter(s => !taken.has(s)),
+    decisions,
+    open: pick(tail, RULES.todos, max).filter(s => !taken.has(s)),
+    lastUser: mine.length > 1 ? clip(mine[mine.length - 1].text, max > 2 ? 300 : 150) : '',
+    lastAi: lastAi ? clip(lastAi.text, max > 2 ? 500 : 200) : '',
+  };
+}
+
+function render(briefs) {
+  const lines = ['# Context from my earlier chats', '',
+    'This is background from earlier conversations I had with an AI. Treat it as what you already know about this work, keep to the preferences and decisions below, and ask me if something is unclear or looks out of date.', ''];
+  const list = (title, items) => { if (items.length) lines.push(`**${title}**`, ...items.map(s => '- ' + s), ''); };
+  for (const b of briefs) {
+    lines.push(`## ${b.head}`, '', `**Started with:** ${b.about}`, '');
+    list('My preferences and instructions', b.prefs);
+    list('Decisions I made', b.decisions);
+    list('Possibly still open', b.open);
+    if (b.lastUser || b.lastAi) {
+      lines.push('**Where it left off**');
+      if (b.lastUser) lines.push('- Me: ' + b.lastUser);
+      if (b.lastAi) lines.push('- AI: ' + b.lastAi);
+      lines.push('');
+    }
+  }
+  return lines.join('\n').trimEnd() + '\n';
+}
+
+// Builds the pack, lowering the detail per chat until it fits the size budget (in characters).
+function buildBrief(chats, budget) {
+  const sorted = [...chats].sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  let text = '';
+  for (let max = 8; max >= 1; max--) {
+    text = render(sorted.map(c => briefOne(c, max)).filter(Boolean));
+    if (text.length <= budget) return { text, over: false };
+  }
+  return { text, over: true };
+}
+
+if (typeof module !== 'undefined') module.exports = { detect, sentences, pick, briefOne, buildBrief, RULES };
+
+// ---------------------------------------------------------------- page
+if (typeof document !== 'undefined') {
+  const $ = id => document.getElementById(id);
+  const el = (tag, props, ...kids) => { const n = Object.assign(document.createElement(tag), props || {}); n.append(...kids); return n; };
+  const copy = async (text, btn) => {
+    const old = btn.textContent;
+    try { await navigator.clipboard.writeText(text); btn.textContent = 'Copied'; } catch (e) { btn.textContent = 'Copy failed'; }
+    setTimeout(() => { btn.textContent = old; }, 1500);
+  };
+  const download = (name, blob) => {
+    const a = el('a', { href: URL.createObjectURL(blob), download: name });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+  };
+  let chats = [];
+  const shown = () => {
+    const q = $('q').value.trim().toLowerCase();
+    return chats.filter(c => !q || c.hay.includes(q));
+  };
+
+  function renderList() {
+    const rows = shown();
+    $('list').replaceChildren(...rows.slice(0, 300).map(c => {
+      const box = el('input', { type: 'checkbox', checked: c.on });
+      box.onchange = () => { c.on = box.checked; renderOut(); };
+      return el('label', {}, box, el('span', {}, c.title + ' ', el('span', { className: 'mut', textContent: `${c.ai}${c.date ? ' · ' + c.date : ''} · ${c.messages.length} messages` })));
+    }));
+    if (!rows.length) $('list').append(el('p', { className: 'mut', textContent: 'No chats match.' }));
+    $('count').textContent = `${chats.filter(c => c.on).length} ticked of ${chats.length} chats` + (rows.length > 300 ? `. Showing the first 300 of ${rows.length}; search to narrow down.` : '.');
+  }
+
+  function renderOut() {
+    const picked = chats.filter(c => c.on);
+    const r = picked.length ? buildBrief(picked, +$('size').value) : { text: '', over: false };
+    $('out').value = r.text;
+    $('count').textContent = `${picked.length} ticked of ${chats.length} chats.` +
+      (r.over ? ' The pack is bigger than the size you chose even at the lowest detail: untick some chats or pick a larger size.' : '');
+    $('copy').disabled = $('save').disabled = !r.text;
+  }
+
+  $('file').onchange = async ev => {
+    const r = await loadFiles(ev.target.files, t => { $('status').textContent = t; });
+    ev.target.value = '';
+    for (const c of r.chats) {
+      c.on = false;
+      c.hay = (c.title + '\n' + c.messages.filter(m => m.role === 'user').map(m => m.text).join('\n')).toLowerCase();
+      chats.push(c);
+    }
+    chats.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    $('work').hidden = !chats.length;
+    $('status').textContent = (chats.length ? `${chats.length} chats loaded.` : 'No chats found yet.') + (r.problems.length ? ' Problems: ' + r.problems.join('; ') : '');
+    renderList(); renderOut();
+  };
+  $('q').oninput = renderList;
+  $('all').onclick = () => { shown().slice(0, 300).forEach(c => { c.on = true; }); renderList(); renderOut(); };
+  $('none').onclick = () => { chats.forEach(c => { c.on = false; }); renderList(); renderOut(); };
+  $('size').onchange = renderOut;
+  $('copy').onclick = () => copy($('out').value, $('copy'));
+  $('save').onclick = () => download('context-pack.md', new Blob([$('out').value], { type: 'text/markdown' }));
+}
+</script>
+</body>
+</html>
