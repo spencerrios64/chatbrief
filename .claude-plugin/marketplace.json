@@ -1,0 +1,16 @@
+{
+  "name": "chatbrief",
+  "owner": {
+    "name": "spencerrios64"
+  },
+  "metadata": {
+    "description": "Turn old AI chats into a short context pack to paste into any AI, with your preferences, decisions and open items."
+  },
+  "plugins": [
+    {
+      "name": "chatbrief",
+      "source": "./plugin",
+      "description": "Turn old AI chats into a short context pack to paste into any AI, with your preferences, decisions and open items."
+    }
+  ]
+}
