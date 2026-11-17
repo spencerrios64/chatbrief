@@ -1,0 +1,9 @@
+{
+  "name": "chatbrief",
+  "version": "0.1.0",
+  "description": "Turn old AI chats into a short context pack to paste into any AI, with your preferences, decisions and open items.",
+  "author": { "name": "spencerrios64" },
+  "homepage": "https://spencerrios64.github.io/chatbrief/",
+  "repository": "https://github.com/spencerrios64/chatbrief",
+  "keywords": ["context", "summary", "continue chat", "chat history", "handoff"]
+}
